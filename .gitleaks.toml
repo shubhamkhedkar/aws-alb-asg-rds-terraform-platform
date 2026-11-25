@@ -1,0 +1,12 @@
+title = "tallybook gitleaks config"
+
+[extend]
+useDefault = true
+
+[allowlist]
+description = "Local-only placeholders, mocked test fixtures and tool caches"
+paths = [
+  '''\.env\.example$''',
+  '''\.terraform/''',
+  '''\.venv/''',
+]

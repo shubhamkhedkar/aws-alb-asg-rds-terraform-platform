@@ -1,0 +1,42 @@
+#!/bin/bash
+# Boot script for Tallybook web instances (Amazon Linux 2023).
+# Rendered by Terraform templatefile(): doubled-dollar sequences become plain shell variables.
+set -euo pipefail
+
+REGION="${region}"
+APP_IMAGE="${app_image}"
+REGISTRY="$${APP_IMAGE%%/*}"
+
+dnf install -y docker jq
+systemctl enable --now docker
+
+# RDS enforces TLS (require_secure_transport=1), so fetch the regional CA bundle.
+install -d -m 0755 /etc/tallybook
+curl -fsSL "https://truststore.pki.rds.amazonaws.com/$${REGION}/$${REGION}-bundle.pem" \
+  -o /etc/tallybook/rds-ca.pem
+
+# Credentials come from the RDS-managed secret via the instance role; nothing is baked into the AMI.
+SECRET_JSON="$(aws secretsmanager get-secret-value --region "$${REGION}" \
+  --secret-id "${db_secret_arn}" --query SecretString --output text)"
+
+umask 077
+cat > /etc/tallybook/app.env <<ENV
+DB_HOST=${db_host}
+DB_PORT=${db_port}
+DB_NAME=${db_name}
+DB_USER=$(jq -r .username <<<"$${SECRET_JSON}")
+DB_PASSWORD=$(jq -r .password <<<"$${SECRET_JSON}")
+DB_SSL_CA=/certs/rds-ca.pem
+ENV
+unset SECRET_JSON
+
+aws ecr get-login-password --region "$${REGION}" \
+  | docker login --username AWS --password-stdin "$${REGISTRY}"
+
+docker run -d --name tallybook --restart unless-stopped \
+  --env-file /etc/tallybook/app.env \
+  -v /etc/tallybook/rds-ca.pem:/certs/rds-ca.pem:ro \
+  -p ${app_port}:8080 \
+  --read-only --tmpfs /tmp \
+  --security-opt no-new-privileges \
+  "$${APP_IMAGE}"

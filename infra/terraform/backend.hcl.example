@@ -1,0 +1,6 @@
+bucket       = "tallybook-tfstate-<account-id>-ap-south-1"
+key          = "two-tier/prod/terraform.tfstate"
+region       = "ap-south-1"
+encrypt      = true
+kms_key_id   = "alias/tallybook-tfstate"
+use_lockfile = true

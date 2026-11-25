@@ -1,0 +1,8 @@
+# Checkov runs against the Terraform code and Dockerfile. Every accepted finding is
+# skipped inline next to the resource with a written justification.
+framework:
+  - terraform
+  - dockerfile
+  - secrets
+compact: true
+quiet: true

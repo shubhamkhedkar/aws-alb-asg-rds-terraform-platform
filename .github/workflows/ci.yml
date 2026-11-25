@@ -1,0 +1,66 @@
+# Quality gates for pull requests. Validation only: no AWS credentials are
+# configured and nothing is planned, applied or published from CI.
+name: ci
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+
+permissions:
+  contents: read
+
+jobs:
+  terraform:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v5
+      - uses: hashicorp/setup-terraform@v3
+        with:
+          terraform_version: 1.17.2
+      - name: fmt
+        run: terraform fmt -check -recursive infra
+      - name: validate
+        run: |
+          for dir in infra/terraform infra/bootstrap; do
+            terraform -chdir="$dir" init -backend=false -input=false
+            terraform -chdir="$dir" validate
+          done
+      - name: test (mocked provider)
+        run: terraform -chdir=infra/terraform test
+      - uses: terraform-linters/setup-tflint@v5
+        with:
+          tflint_version: v0.66.0
+      - name: tflint
+        run: |
+          tflint --chdir=infra/terraform --config="$GITHUB_WORKSPACE/.tflint.hcl" --init
+          tflint --chdir=infra/terraform --config="$GITHUB_WORKSPACE/.tflint.hcl" --recursive
+      - name: checkov
+        run: |
+          pipx install checkov
+          checkov --config-file .checkov.yaml -d infra --skip-path tests
+
+  app:
+    runs-on: ubuntu-24.04
+    defaults:
+      run:
+        working-directory: app
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-python@v6
+        with:
+          python-version: "3.13"
+      - run: pip install -r requirements-dev.txt
+      - run: ruff check . && ruff format --check .
+      - run: python -m pytest
+      - run: pip-audit --strict -r requirements.txt
+
+  smoke:
+    runs-on: ubuntu-24.04
+    needs: [app]
+    steps:
+      - uses: actions/checkout@v5
+      - uses: hadolint/hadolint-action@v3.1.0
+        with:
+          dockerfile: Dockerfile
+      - run: scripts/smoke-compose.sh
